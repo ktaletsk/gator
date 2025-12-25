@@ -45,10 +45,10 @@ cd ./ui-tests
 jlpm playwright test
 ```
 
-Test results will be shown in the terminal. In case of any test failures, the test report
-will be opened in your browser at the end of the tests execution; see
+Test results will be shown in the terminal. To view the detailed HTML test report,
+use `jlpm playwright show-report` to serve the results in your browser; see
 [Playwright documentation](https://playwright.dev/docs/test-reporters#html-reporter)
-for configuring that behavior.
+for more information.
 
 ## Update the tests snapshots
 

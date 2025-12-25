@@ -81,6 +81,11 @@ mamba_gator/labextension/**
 packages/navigator/webpack-report.html
 mamba_gator/nbextension/static/**
 !mamba_gator/nbextension/static/favicon.svg
-.playwright/
+
 # Version file is handled by hatchling
 mamba_gator/_version.py
+
+# ui-tests
+.playwright/
+ui-tests/playwright-report/
+ui-tests/test-results/.last-run.json
