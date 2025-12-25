@@ -57,11 +57,23 @@ export const CondaPkgDrawer: React.FunctionComponent<ICondaPkgDrawerProps> = (
   const [selectedPackages, setSelectedPackages] = React.useState<
     Conda.IPackage[]
   >([]);
+  const [packages, setPackages] = React.useState<Conda.IPackage[]>(
+    props.packages
+  );
+
+  // Sync local packages when props.packages changes
+  React.useEffect(() => {
+    setPackages(props.packages);
+  }, [props.packages]);
 
   const handleClose = () => {
-    selectedPackages.forEach(pkg => {
-      pkg.version_selected = 'none';
-    });
+    setPackages(prev =>
+      prev.map(pkg =>
+        selectedPackages.some(sp => sp.name === pkg.name)
+          ? { ...pkg, version_selected: 'none' }
+          : pkg
+      )
+    );
     setSelectedPackages([]);
     props.onClose();
   };
@@ -80,17 +92,17 @@ export const CondaPkgDrawer: React.FunctionComponent<ICondaPkgDrawerProps> = (
       return;
     }
 
-    pkg.version_selected = version;
+    const updatedPkg = { ...pkg, version_selected: version };
+    setPackages(prev => prev.map(p => (p.name === pkg.name ? updatedPkg : p)));
 
     if (version !== 'none') {
       setSelectedPackages(prev => {
-        if (prev.includes(pkg)) {
-          return [...prev];
-        }
-        return [...prev, pkg];
+        // Remove old reference if exists, add new one
+        const filtered = prev.filter(p => p.name !== pkg.name);
+        return [...filtered, updatedPkg];
       });
     } else {
-      setSelectedPackages(prev => prev.filter(p => p !== pkg));
+      setSelectedPackages(prev => prev.filter(p => p.name !== pkg.name));
     }
   };
 
@@ -102,12 +114,20 @@ export const CondaPkgDrawer: React.FunctionComponent<ICondaPkgDrawerProps> = (
     // For uninstalled packages, toggle version_selected between 'none' and ''
     if (pkg.version_selected !== 'none') {
       // It's currently selected, so deselect
-      pkg.version_selected = 'none';
-      setSelectedPackages(selectedPackages.filter(p => p !== pkg));
+      const updatedPkg = { ...pkg, version_selected: 'none' };
+
+      setPackages(prev =>
+        prev.map(p => (p.name === pkg.name ? updatedPkg : p))
+      );
+      setSelectedPackages(prev => prev.filter(p => p.name !== pkg.name));
     } else {
-      // It's currently not selected, so select with empty string (represents "Any" version)
-      pkg.version_selected = '';
-      setSelectedPackages([...selectedPackages, pkg]);
+      // It's currently not selected, so select with empty string (represents "unpinned" version)
+      const updatedPkg = { ...pkg, version_selected: '' };
+
+      setPackages(prev =>
+        prev.map(p => (p.name === pkg.name ? updatedPkg : p))
+      );
+      setSelectedPackages(prev => [...prev, updatedPkg]);
     }
   };
 
@@ -117,8 +137,12 @@ export const CondaPkgDrawer: React.FunctionComponent<ICondaPkgDrawerProps> = (
     }
 
     // Reset version_selected to 'none' when removing from selection
-    pkg.version_selected = 'none';
-    setSelectedPackages(selectedPackages.filter(p => p !== pkg));
+    setPackages(prev =>
+      prev.map(p =>
+        p.name === pkg.name ? { ...p, version_selected: 'none' } : p
+      )
+    );
+    setSelectedPackages(prev => prev.filter(p => p.name !== pkg.name));
   };
 
   const handleInstall = async (): Promise<void> => {
@@ -133,14 +157,20 @@ export const CondaPkgDrawer: React.FunctionComponent<ICondaPkgDrawerProps> = (
         const wasApplied = await applyPackageChanges(
           props.pkgModel,
           selectedPackages,
-          props.envName
+          props.envName,
+          true
         );
 
         if (wasApplied) {
           // Reset version_selected for all selected packages
-          selectedPackages.forEach(pkg => {
-            pkg.version_selected = 'none';
-          });
+          const selectedNames = new Set(selectedPackages.map(p => p.name));
+          setPackages(prev =>
+            prev.map(pkg =>
+              selectedNames.has(pkg.name)
+                ? { ...pkg, version_selected: 'none' }
+                : pkg
+            )
+          );
 
           setSelectedPackages([]);
 
@@ -163,28 +193,39 @@ export const CondaPkgDrawer: React.FunctionComponent<ICondaPkgDrawerProps> = (
       return;
     }
 
-    selectedPackages.forEach(pkg => {
-      pkg.version_selected = 'none';
-    });
+    const selectedNames = new Set(selectedPackages.map(p => p.name));
+    setPackages(prev =>
+      prev.map(pkg =>
+        selectedNames.has(pkg.name) ? { ...pkg, version_selected: 'none' } : pkg
+      )
+    );
     setSelectedPackages([]);
   };
 
   // Filter packages based on search term
-  const searchPackages = props.packages.filter(pkg => {
+  const searchPackages = React.useMemo(() => {
     if (!searchTerm) {
-      return true;
+      return packages;
     }
     const lowerSearch = searchTerm.toLowerCase();
-    const lowerName = pkg.name.toLowerCase();
 
-    return (
-      lowerName.indexOf(lowerSearch) >= 0 ||
-      (props.hasDescription &&
-        (pkg.summary.toLowerCase().indexOf(lowerSearch) >= 0 ||
-          pkg.keywords.indexOf(lowerSearch) >= 0 ||
-          pkg.tags.indexOf(lowerSearch) >= 0))
-    );
-  });
+    return packages
+      .filter(pkg => {
+        const lowerName = pkg.name.toLowerCase();
+        return lowerName.indexOf(lowerSearch) >= 0;
+      })
+      .sort((a, b) => {
+        const aStartsWith = a.name.toLowerCase().startsWith(lowerSearch);
+        const bStartsWith = b.name.toLowerCase().startsWith(lowerSearch);
+        if (aStartsWith && !bStartsWith) {
+          return -1;
+        }
+        if (!aStartsWith && bStartsWith) {
+          return 1;
+        }
+        return a.name.localeCompare(b.name);
+      });
+  }, [packages, searchTerm]);
 
   const renderPkgsSelected = (): JSX.Element => {
     if (selectedPackages.length === 0) {
@@ -261,6 +302,7 @@ export const CondaPkgDrawer: React.FunctionComponent<ICondaPkgDrawerProps> = (
                 onPkgClick={handlePackageSelection}
                 onPkgChange={handleVersionSelection}
                 onPkgGraph={props.onPkgGraph}
+                isDrawerMode={true}
               />
             </div>
           </div>

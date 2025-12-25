@@ -15,7 +15,8 @@ import { PkgGraphWidget } from './PkgGraph';
 import {
   updateAllPackages,
   applyPackageChanges,
-  refreshAvailablePackages as refreshAvailablePkgs
+  refreshAvailablePackages as refreshAvailablePkgs,
+  deletePackages
 } from '../packageActions';
 
 // Minimal panel width to show package description
@@ -49,6 +50,10 @@ export interface IPkgPanelProps {
    * Command registry
    */
   commands?: CommandRegistry;
+  /**
+   * Whether to use direct package actions (immediate update on version change)
+   */
+  useDirectPackageActions?: boolean;
 }
 
 /**
@@ -91,6 +96,11 @@ export interface IPkgPanelState {
    * Is the package drawer open?
    */
   isDrawerOpen: boolean;
+  /**
+   * Whether to use direct package actions (immediate update on version change)
+   */
+  useDirectPackageActions: boolean;
+  channelFilter: string[];
 }
 
 /** Top level React component for widget */
@@ -109,7 +119,9 @@ export class CondaPkgPanel extends React.Component<
       selected: [],
       searchTerm: '',
       activeFilter: PkgFilters.Installed,
-      isDrawerOpen: false
+      isDrawerOpen: false,
+      useDirectPackageActions: props.useDirectPackageActions ?? true,
+      channelFilter: []
     };
 
     this._model = this.props.packageManager;
@@ -122,10 +134,12 @@ export class CondaPkgPanel extends React.Component<
     this.handleApply = this.handleApply.bind(this);
     this.handleCancel = this.handleCancel.bind(this);
     this.handleRefreshPackages = this.handleRefreshPackages.bind(this);
+    this.handleDeleteSelected = this.handleDeleteSelected.bind(this);
 
     this.handleCloseDrawer = this.handleCloseDrawer.bind(this);
     this.handleAddPackages = this.handleAddPackages.bind(this);
     this.handlePackagesInstalled = this.handlePackagesInstalled.bind(this);
+    this.handleToggleDirectActions = this.handleToggleDirectActions.bind(this);
     this._model.packageChanged.connect(this.handlePackageChanged);
   }
 
@@ -153,6 +167,16 @@ export class CondaPkgPanel extends React.Component<
     this.setState({
       isDrawerOpen: true
     });
+  }
+
+  handleToggleDirectActions(): void {
+    // Clear any pending selections when switching modes
+    const newPackages = this._cancelPackageChanges(this.state.selected);
+    this.setState(prevState => ({
+      useDirectPackageActions: !prevState.useDirectPackageActions,
+      packages: newPackages,
+      selected: [] as Conda.IPackage[]
+    }));
   }
 
   private async _updatePackages(): Promise<void> {
@@ -222,14 +246,23 @@ export class CondaPkgPanel extends React.Component<
    * Cancel package changes (reset selection state)
    *
    * @param selectedPackages List of packages with pending changes
+   * @returns New packages array with reset version_selected values
    */
-  private _cancelPackageChanges(selectedPackages: Conda.IPackage[]): void {
-    selectedPackages.forEach(
-      pkg =>
-        (pkg.version_selected = pkg.version_installed
-          ? pkg.version_installed
-          : 'none')
-    );
+  private _cancelPackageChanges(
+    selectedPackages: Conda.IPackage[]
+  ): Conda.IPackage[] {
+    const newPackages = this.state.packages.map(pkg => {
+      if (selectedPackages.includes(pkg)) {
+        return {
+          ...pkg,
+          version_selected: pkg.version_installed
+            ? pkg.version_installed
+            : 'none'
+        };
+      }
+      return pkg;
+    });
+    return newPackages;
   }
 
   handleCategoryChanged(event: React.ChangeEvent<HTMLSelectElement>): void {
@@ -247,42 +280,100 @@ export class CondaPkgPanel extends React.Component<
       return;
     }
 
-    const selectIdx = this.state.selected.indexOf(pkg);
-    const selection = this.state.selected;
-    if (selectIdx >= 0) {
-      this.state.selected.splice(selectIdx, 1);
-    }
+    const useDirectActions = this.state.useDirectPackageActions;
+    const pkgIndex = this.state.packages.indexOf(pkg);
 
-    if (pkg.version_installed) {
-      if (pkg.version_installed === pkg.version_selected) {
-        if (pkg.updatable) {
-          pkg.version_selected = ''; // Set for update
-          selection.push(pkg);
+    if (useDirectActions) {
+      const selectIdx = this.state.selected.indexOf(pkg);
+      const selection = [...this.state.selected];
+      const wasSelected = selectIdx >= 0;
+
+      if (wasSelected) {
+        selection.splice(selectIdx, 1);
+      }
+
+      let newVersionSelected: string;
+      if (pkg.version_installed) {
+        // Toggle update selection
+        if (wasSelected) {
+          newVersionSelected = pkg.version_installed; // Reset to current version
         } else {
-          pkg.version_selected = 'none'; // Set for removal
-          selection.push(pkg);
+          newVersionSelected = ''; // Empty string = unpinned update
         }
       } else {
-        if (pkg.version_selected === 'none') {
-          pkg.version_selected = pkg.version_installed;
+        if (pkg.version_selected !== 'none') {
+          newVersionSelected = 'none'; // Unselect
         } else {
-          pkg.version_selected = 'none'; // Set for removal
-          selection.push(pkg);
+          newVersionSelected = ''; // Select 'Any' (unpinned install)
         }
       }
+
+      const updatedPkg = { ...pkg, version_selected: newVersionSelected };
+
+      // Update selection array with the new package reference
+      if (
+        !wasSelected &&
+        (pkg.version_installed || newVersionSelected !== 'none')
+      ) {
+        selection.push(updatedPkg);
+      }
+
+      const newPackages = [...this.state.packages];
+      newPackages[pkgIndex] = updatedPkg;
+
+      this.setState({
+        packages: newPackages,
+        selected: selection
+      });
     } else {
-      if (pkg.version_selected !== 'none') {
-        pkg.version_selected = 'none'; // Unselect
-      } else {
-        pkg.version_selected = ''; // Select 'Any'
-        selection.push(pkg);
+      const selectIdx = this.state.selected.indexOf(pkg);
+      const selection = [...this.state.selected];
+      if (selectIdx >= 0) {
+        selection.splice(selectIdx, 1);
       }
-    }
 
-    this.setState({
-      packages: this.state.packages,
-      selected: selection
-    });
+      let newVersionSelected: string;
+      if (pkg.version_installed) {
+        if (pkg.version_installed === pkg.version_selected) {
+          if (pkg.updatable) {
+            newVersionSelected = ''; // Set for update
+          } else {
+            newVersionSelected = 'none'; // Set for removal
+          }
+        } else {
+          if (pkg.version_selected === 'none') {
+            newVersionSelected = pkg.version_installed;
+          } else {
+            newVersionSelected = 'none'; // Set for removal
+          }
+        }
+      } else {
+        if (pkg.version_selected !== 'none') {
+          newVersionSelected = 'none'; // Unselect
+        } else {
+          newVersionSelected = ''; // Select 'Any'
+        }
+      }
+
+      const updatedPkg = { ...pkg, version_selected: newVersionSelected };
+
+      // Update selection array with the new package reference *if needed*
+      const shouldSelect =
+        (pkg.version_installed &&
+          newVersionSelected !== pkg.version_installed) ||
+        (!pkg.version_installed && newVersionSelected !== 'none');
+      if (shouldSelect) {
+        selection.push(updatedPkg);
+      }
+
+      const newPackages = [...this.state.packages];
+      newPackages[pkgIndex] = updatedPkg;
+
+      this.setState({
+        packages: newPackages,
+        selected: selection
+      });
+    }
   }
 
   handleVersionSelection(pkg: Conda.IPackage, version: string): void {
@@ -290,28 +381,60 @@ export class CondaPkgPanel extends React.Component<
       return;
     }
 
-    const selectIdx = this.state.selected.indexOf(pkg);
-    const selection = this.state.selected;
-    if (selectIdx >= 0) {
-      this.state.selected.splice(selectIdx, 1);
-    }
+    const useDirectActions = this.state.useDirectPackageActions;
+    const pkgIndex = this.state.packages.indexOf(pkg);
 
     if (pkg.version_installed) {
-      if (pkg.version_installed !== version) {
-        selection.push(pkg);
+      if (useDirectActions) {
+        if (pkg.version_installed !== version) {
+          this.props.commands?.execute('gator-lab:update-pkg', {
+            name: pkg.name,
+            environment: this._currentEnvironment,
+            version: version === 'auto' ? '' : version
+          });
+        }
+      } else {
+        const selectIdx = this.state.selected.indexOf(pkg);
+        const selection = [...this.state.selected];
+        if (selectIdx >= 0) {
+          selection.splice(selectIdx, 1);
+        }
+
+        const updatedPkg = { ...pkg, version_selected: version };
+
+        if (pkg.version_installed !== version) {
+          selection.push(updatedPkg);
+        }
+
+        const newPackages = [...this.state.packages];
+        newPackages[pkgIndex] = updatedPkg;
+
+        this.setState({
+          packages: newPackages,
+          selected: selection
+        });
       }
     } else {
-      if (version !== 'none') {
-        selection.push(pkg);
+      const selectIdx = this.state.selected.indexOf(pkg);
+      const selection = [...this.state.selected];
+      if (selectIdx >= 0) {
+        selection.splice(selectIdx, 1);
       }
+
+      const updatedPkg = { ...pkg, version_selected: version };
+
+      if (version !== 'none') {
+        selection.push(updatedPkg);
+      }
+
+      const newPackages = [...this.state.packages];
+      newPackages[pkgIndex] = updatedPkg;
+
+      this.setState({
+        packages: newPackages,
+        selected: selection
+      });
     }
-
-    pkg.version_selected = version;
-
-    this.setState({
-      packages: this.state.packages,
-      selected: selection
-    });
   }
 
   handleDependenciesGraph = (pkg: Conda.IPackage): void => {
@@ -378,11 +501,12 @@ export class CondaPkgPanel extends React.Component<
       const wasApplied = await applyPackageChanges(
         this._model,
         this.state.selected,
-        this._currentEnvironment
+        this._currentEnvironment,
+        false,
+        this.state.useDirectPackageActions
       );
 
       if (wasApplied) {
-        this._updatePackages();
         this.setState({
           isApplyingChanges: false,
           selected: [],
@@ -403,14 +527,36 @@ export class CondaPkgPanel extends React.Component<
     }
   }
 
+  async handleDeleteSelected(): Promise<void> {
+    if (this.state.isApplyingChanges) {
+      return;
+    }
+
+    try {
+      this.setState({
+        isApplyingChanges: true
+      });
+
+      await deletePackages(
+        this._model,
+        this.state.selected.map(pkg => pkg.name),
+        this._currentEnvironment
+      );
+    } finally {
+      this.setState({
+        isApplyingChanges: false
+      });
+    }
+  }
   handleCancel(): void {
     if (this.state.isApplyingChanges) {
       return;
     }
 
-    this._cancelPackageChanges(this.state.selected);
+    const newPackages = this._cancelPackageChanges(this.state.selected);
 
     this.setState({
+      packages: newPackages,
       selected: []
     });
   }
@@ -447,8 +593,17 @@ export class CondaPkgPanel extends React.Component<
     this._model.packageChanged.disconnect(this.handlePackageChanged);
   }
 
+  handleChannelFilterChanged = (channels: string[]): void => {
+    if (this.state.isApplyingChanges) {
+      return;
+    }
+
+    this.setState({ channelFilter: channels });
+  };
+
   render(): JSX.Element {
     let filteredPkgs: Conda.IPackage[] = [];
+
     if (this.state.activeFilter === PkgFilters.Installed) {
       filteredPkgs = this.state.packages.filter(pkg => pkg.version_installed);
     } else if (this.state.activeFilter === PkgFilters.Updatable) {
@@ -459,24 +614,42 @@ export class CondaPkgPanel extends React.Component<
       );
     }
 
+    const filteredByChannels =
+      this.state.channelFilter.length === 0
+        ? filteredPkgs
+        : filteredPkgs.filter(
+            pkg => pkg.channel && this.state.channelFilter.includes(pkg.channel)
+          );
+
     const uninstalledPkgs: Conda.IPackage[] = this.state.packages.filter(
       (pkg: Conda.IPackage) => !pkg.version_installed
     );
+    const uninstalledByChannels =
+      this.state.channelFilter.length === 0
+        ? uninstalledPkgs
+        : uninstalledPkgs.filter(
+            pkg => pkg.channel && this.state.channelFilter.includes(pkg.channel)
+          );
+
+    const installedPkgs = this.state.packages.filter(
+      pkg => pkg.version_installed
+    );
+
+    const availableChannels = Array.from(
+      new Set(installedPkgs.map(p => p.channel).filter((c): c is string => !!c))
+    ).sort((a, b) => a.localeCompare(b));
 
     let searchPkgs: Conda.IPackage[] = [];
     if (this.state.searchTerm === null) {
-      searchPkgs = filteredPkgs;
+      searchPkgs = filteredByChannels;
     } else {
-      searchPkgs = filteredPkgs.filter(pkg => {
-        const lowerSearch = this.state.searchTerm.toLowerCase();
-        return (
-          pkg.name.indexOf(this.state.searchTerm) >= 0 ||
-          (this.state.hasDescription &&
-            (pkg.summary.indexOf(this.state.searchTerm) >= 0 ||
-              pkg.keywords.indexOf(lowerSearch) >= 0 ||
-              pkg.tags.indexOf(lowerSearch) >= 0))
-        );
+      const lowerSearch = this.state.searchTerm.toLowerCase();
+      searchPkgs = filteredByChannels.filter(pkg => {
+        // Removing description and summary from search
+        const lowerName = pkg.name.toLowerCase();
+        return lowerName.indexOf(lowerSearch) >= 0;
       });
+      // No .sort() here - CondaPkgList handles sorting with searchTerm
     }
 
     return (
@@ -489,6 +662,11 @@ export class CondaPkgPanel extends React.Component<
           }
           category={this.state.activeFilter}
           hasSelection={this.state.selected.length > 0}
+          selectedCount={this.state.selected.length}
+          installedCount={installedPkgs.length}
+          availableChannels={availableChannels}
+          selectedChannels={this.state.channelFilter}
+          onSelectedChannelsChanged={this.handleChannelFilterChanged}
           hasUpdate={this.state.hasUpdate}
           searchTerm={this.state.searchTerm}
           onCategoryChanged={this.handleCategoryChanged}
@@ -498,6 +676,9 @@ export class CondaPkgPanel extends React.Component<
           onCancel={this.handleCancel}
           onRefreshPackages={this.handleRefreshPackages}
           onAddPackages={this.handleAddPackages}
+          onDeleteSelected={this.handleDeleteSelected}
+          useDirectPackageActions={this.state.useDirectPackageActions}
+          onToggleDirectActions={this.handleToggleDirectActions}
         />
         <div
           style={{
@@ -517,7 +698,7 @@ export class CondaPkgPanel extends React.Component<
                 this.state.hasDescription &&
                 this.props.width > PANEL_SMALL_WIDTH
               }
-              packages={uninstalledPkgs}
+              packages={uninstalledByChannels}
               isLoading={this.state.isLoading}
               onPkgClick={this.handleClick}
               onPkgGraph={this.handleDependenciesGraph}
@@ -531,13 +712,15 @@ export class CondaPkgPanel extends React.Component<
                 this.state.hasDescription &&
                 this.props.width > PANEL_SMALL_WIDTH
               }
-              packages={searchPkgs}
+              packages={searchPkgs} // already filtered by channels
               isLoading={this.state.isLoading}
               onPkgClick={this.handleClick}
               onPkgChange={this.handleVersionSelection}
               onPkgGraph={this.handleDependenciesGraph}
               commands={this.props.commands}
               envName={this._currentEnvironment}
+              useDirectPackageActions={this.state.useDirectPackageActions}
+              searchTerm={this.state.searchTerm}
             />
           )}
         </div>
@@ -557,5 +740,14 @@ namespace Style {
     flex: '1 1 auto',
     overflow: 'hidden',
     borderLeft: '1px solid var(--jp-border-color2)'
+  });
+
+  export const SelectionCount = style({
+    fontSize: 'var(--jp-ui-font-size1)',
+    color: 'var(--jp-ui-font-color1)',
+    fontWeight: 500,
+    padding: '0 8px',
+    display: 'flex',
+    alignItems: 'center'
   });
 }

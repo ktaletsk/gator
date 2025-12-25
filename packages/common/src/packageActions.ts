@@ -85,12 +85,15 @@ export async function updateAllPackages(
  * @param pkgModel Package manager
  * @param selectedPackages List of packages with pending changes
  * @param environment Environment name
+ * @param skipConfirmation Skip confirmation dialog
  * @returns True if the changes were applied successfully, false otherwise
  */
 export async function applyPackageChanges(
   pkgModel: Conda.IPackageManager,
   selectedPackages: Conda.IPackage[],
-  environment?: string
+  environment?: string,
+  skipConfirmation = false,
+  isDirectUpdate = false
 ): Promise<boolean> {
   const theEnvironment = environment || pkgModel.environment;
   if (!theEnvironment) {
@@ -99,89 +102,118 @@ export async function applyPackageChanges(
 
   let toastId = '';
   try {
-    const confirmation = await showDialog({
-      title: 'Packages actions',
-      body: 'Please confirm you want to apply the selected actions?'
-    });
-
-    if (confirmation.button.accept) {
-      // Emit started signal
-      pkgModel.emitPackageAction({
-        environment: theEnvironment,
-        type: 'apply-changes',
-        status: 'started',
-        details: {
-          packagesAffected: selectedPackages.length
-        }
+    if (!skipConfirmation) {
+      const confirmation = await showDialog({
+        title: 'Packages actions',
+        body: 'Please confirm you want to apply the selected actions?'
       });
 
-      toastId = Notification.emit('Starting packages actions', 'in-progress');
+      if (!confirmation.button.accept) {
+        return false;
+      }
+    }
 
-      // Get modified pkgs
-      const toRemove: Array<string> = [];
-      const toUpdate: Array<string> = [];
-      const toInstall: Array<string> = [];
-      selectedPackages.forEach(pkg => {
+    // Emit started signal
+    pkgModel.emitPackageAction({
+      environment: theEnvironment,
+      type: 'apply-changes',
+      status: 'started',
+      details: {
+        packagesAffected: selectedPackages.length
+      }
+    });
+
+    toastId = Notification.emit('Starting packages actions', 'in-progress');
+
+    // Get modified pkgs
+    const toRemove: Array<string> = [];
+    const toUpdate: Array<string> = [];
+    const toInstall: Array<string> = [];
+    const skipped: Array<string> = [];
+
+    selectedPackages.forEach(pkg => {
+      if (isDirectUpdate) {
+        if (pkg.version_installed && pkg.updatable) {
+          toUpdate.push(pkg.name);
+        } else if (pkg.version_installed && !pkg.updatable) {
+          skipped.push(pkg.name);
+        } else {
+          // New package
+          toInstall.push(pkg.name);
+        }
+      } else {
         if (pkg.version_installed && pkg.version_selected === 'none') {
           toRemove.push(pkg.name);
         } else if (pkg.updatable && pkg.version_selected === '') {
           toUpdate.push(pkg.name);
         } else {
           toInstall.push(
-            pkg.version_selected
+            pkg.version_selected && pkg.version_selected !== 'auto'
               ? pkg.name + '=' + pkg.version_selected
               : pkg.name
           );
         }
-      });
-
-      if (toRemove.length > 0) {
-        Notification.update({
-          id: toastId,
-          message: 'Removing selected packages'
-        });
-        await pkgModel.remove(toRemove, theEnvironment);
       }
+    });
 
-      if (toUpdate.length > 0) {
-        Notification.update({
-          id: toastId,
-          message: 'Updating selected packages'
-        });
-        await pkgModel.update(toUpdate, theEnvironment);
-      }
+    if (skipped.length > 0) {
+      const skippedList =
+        skipped.length <= 3
+          ? skipped.join(', ')
+          : `${skipped.slice(0, 3).join(', ')} and ${skipped.length - 3} more`;
+      Notification.info(
+        `Skipped ${skipped.length} package${
+          skipped.length > 1 ? 's' : ''
+        } already at latest version: ${skippedList}`,
+        { autoClose: 6000 }
+      );
+    }
 
-      if (toInstall.length > 0) {
-        Notification.update({
-          id: toastId,
-          message: 'Installing new packages'
-        });
-        await pkgModel.install(toInstall, theEnvironment);
-      }
-
+    if (toRemove.length > 0) {
       Notification.update({
         id: toastId,
-        message:
-          'Package actions successfully done for ' + theEnvironment + '.',
-        type: 'success',
-        autoClose: 5000
+        message: 'Removing selected packages',
+        autoClose: false
       });
-
-      // Emit completed signal
-      pkgModel.emitPackageAction({
-        environment: theEnvironment,
-        type: 'apply-changes',
-        status: 'completed',
-        details: {
-          packagesAffected: selectedPackages.length
-        }
-      });
-
-      return true;
-    } else {
-      // User cancelled the dialog, return false
-      return false;
+      await pkgModel.remove(toRemove, theEnvironment);
     }
+
+    if (toUpdate.length > 0) {
+      Notification.update({
+        id: toastId,
+        message: 'Updating selected packages',
+        autoClose: false
+      });
+      await pkgModel.update(toUpdate, theEnvironment);
+    }
+
+    if (toInstall.length > 0) {
+      Notification.update({
+        id: toastId,
+        message: 'Installing selected packages',
+        autoClose: false
+      });
+      await pkgModel.install(toInstall, theEnvironment);
+    }
+
+    Notification.update({
+      id: toastId,
+      message: 'Package actions successfully done for ' + theEnvironment + '.',
+      type: 'success',
+      autoClose: 5000
+    });
+
+    // Emit completed signal
+    pkgModel.emitPackageAction({
+      environment: theEnvironment,
+      type: 'apply-changes',
+      status: 'completed',
+      details: {
+        packagesAffected: selectedPackages.length
+      }
+    });
+
+    return true;
   } catch (error) {
     if (error !== 'cancelled') {
       console.error(error);
@@ -342,6 +374,62 @@ export async function deletePackage(
 }
 
 /**
+ * Delete multiple packages from an environment
+ *
+ * @param pkgModel Package manager
+ * @param packages String list of package names
+ * @param environment Environment name
+ */
+export async function deletePackages(
+  pkgModel: Conda.IPackageManager,
+  packages: string[],
+  environment?: string
+): Promise<void> {
+  const theEnvironment = environment || pkgModel.environment;
+  if (!theEnvironment) {
+    return;
+  }
+
+  let deleteNotification = '';
+
+  try {
+    const confirmation = await showDialog({
+      title: 'Delete packages',
+      body: `Please confirm you want to delete ${packages.length} packages?`
+    });
+
+    if (confirmation.button.accept) {
+      deleteNotification = Notification.emit(
+        `Deleting ${packages.length} packages in ${theEnvironment}.`,
+        'in-progress'
+      );
+
+      await pkgModel.remove(packages, theEnvironment);
+
+      Notification.update({
+        id: deleteNotification,
+        message: `Deleted ${packages.length} packages in ${theEnvironment}`,
+        type: 'success',
+        autoClose: 3000
+      });
+    }
+  } catch (error) {
+    if ((error as any).message !== 'cancelled') {
+      console.error('Error when deleting the package.', error);
+
+      Notification.update({
+        id: deleteNotification,
+        message: `Failed to delete ${packages.length} packages in ${theEnvironment}`,
+        type: 'error',
+        autoClose: 0
+      });
+    } else {
+      Notification.dismiss(deleteNotification);
+    }
+  }
+}
+
+/**
  * Update a package in an environment
  *
  * @param pkgModel Package manager
@@ -362,30 +450,25 @@ export async function updatePackage(
 
   let toastId = '';
   try {
-    const confirmation = await showDialog({
-      title: 'Update package',
-      body: `Please confirm you want to update ${packageName}?`
+    toastId = Notification.emit('Updating package', 'in-progress', {
+      autoClose: false
     });
 
-    if (confirmation.button.accept) {
-      toastId = Notification.emit('Updating package', 'in-progress');
-
-      if (version) {
-        // When a specific version is requested, use conda install
-        const packageSpec = `${packageName}=${version}`;
-        await pkgModel.install([packageSpec], theEnvironment);
-      } else {
-        // When no version specified, use conda update
-        await pkgModel.update([packageName], theEnvironment);
-      }
-
-      Notification.update({
-        id: toastId,
-        message: `Package ${packageName} updated successfully.`,
-        type: 'success',
-        autoClose: 5000
-      });
+    if (version) {
+      // When a specific version is requested, use conda install
+      const packageSpec = `${packageName}=${version}`;
+      await pkgModel.install([packageSpec], theEnvironment);
+    } else {
+      // When no version specified, use conda update
+      await pkgModel.update([packageName], theEnvironment);
     }
+
+    Notification.update({
+      id: toastId,
+      message: `Package ${packageName} updated successfully.`,
+      type: 'success',
+      autoClose: 5000
+    });
   } catch (error) {
     if (error !== 'cancelled') {
       console.error(error);
