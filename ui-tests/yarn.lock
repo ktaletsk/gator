@@ -852,7 +852,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@jupyterlab/galata@npm:^5.0.5":
+"@jupyterlab/galata@npm:^5.5.1":
   version: 5.5.1
   resolution: "@jupyterlab/galata@npm:5.5.1"
   dependencies:
@@ -1590,7 +1590,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@playwright/test@npm:^1.37.0, @playwright/test@npm:^1.57.0":
+"@playwright/test@npm:1.57.0, @playwright/test@npm:^1.57.0":
   version: 1.57.0
   resolution: "@playwright/test@npm:1.57.0"
   dependencies:
@@ -4226,8 +4226,8 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "mamba_gator-ui-tests@workspace:."
   dependencies:
-    "@jupyterlab/galata": ^5.0.5
-    "@playwright/test": ^1.37.0
+    "@jupyterlab/galata": ^5.5.1
+    "@playwright/test": 1.57.0
   languageName: unknown
   linkType: soft
 
@@ -5061,11 +5061,11 @@ __metadata:
   linkType: hard
 
 "systeminformation@npm:^5.8.6":
-  version: 5.28.0
-  resolution: "systeminformation@npm:5.28.0"
+  version: 5.28.1
+  resolution: "systeminformation@npm:5.28.1"
   bin:
     systeminformation: lib/cli.js
-  checksum: a1af0f91fbff53be7e02f952da42ccd448e0ffa7c832242d647f86eb7888669ded4d568ad0c76aaf55a3b9c8db3109b8a943fac6fd2bc66dc487efc47fe2ca8d
+  checksum: d602fd698511861339fea2725707732d4a480d7786550680d1532f75ad9accbea0448e375e8f2a4aebc1921dfdfaafe25fa07adfe097d24562f0d0cda912c6d1
   conditions: (os=darwin | os=linux | os=win32 | os=freebsd | os=openbsd | os=netbsd | os=sunos | os=android)
   languageName: node
   linkType: hard
