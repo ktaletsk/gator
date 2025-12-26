@@ -50,6 +50,21 @@ use `jlpm playwright show-report` to serve the results in your browser; see
 [Playwright documentation](https://playwright.dev/docs/test-reporters#html-reporter)
 for more information.
 
+## Run tests in UI Mode
+
+> All commands are assumed to be executed from the root directory
+
+Run tests with UI Mode for watch mode, live step view, time travel debugging and more:
+
+```sh
+cd ./ui-tests
+jlpm playwright test --ui
+```
+
+This will open an interactive UI where you can see the test execution in real-time,
+step through tests, and debug failures more easily. See the
+[Playwright UI Mode documentation](https://playwright.dev/docs/test-ui-mode) for more details.
+
 ## Update the tests snapshots
 
 > All commands are assumed to be executed from the root directory
