@@ -12,13 +12,11 @@ in [jupyter_server_test_config.py](./jupyter_server_test_config.py).
 
 The default configuration will produce video for failing tests and an HTML report.
 
-> There is a UI mode that you may like; see [that video](https://www.youtube.com/watch?v=jF0yA-JLQW0).
-
-## Run the tests
+## Prerequisites
 
 > All commands are assumed to be executed from the root directory
 
-To run the tests, you need to:
+Before running any tests, ensure the extension is compiled and test dependencies are installed:
 
 1. Compile the extension:
 
@@ -26,8 +24,6 @@ To run the tests, you need to:
 jlpm install
 jlpm build:prod
 ```
-
-> Check the extension is installed in JupyterLab.
 
 2. Install test dependencies (needed only once):
 
@@ -38,7 +34,9 @@ jlpm playwright install
 cd ..
 ```
 
-3. Execute the [Playwright](https://playwright.dev/docs/intro) tests:
+## Run the tests
+
+Execute the [Playwright](https://playwright.dev/docs/intro) tests:
 
 ```sh
 cd ./ui-tests
@@ -51,8 +49,6 @@ use `jlpm playwright show-report` to serve the results in your browser; see
 for more information.
 
 ## Run tests in UI Mode
-
-> All commands are assumed to be executed from the root directory
 
 Run tests with UI Mode for watch mode, live step view, time travel debugging and more:
 
@@ -67,30 +63,7 @@ step through tests, and debug failures more easily. See the
 
 ## Update the tests snapshots
 
-> All commands are assumed to be executed from the root directory
-
-If you are comparing snapshots to validate your tests, you may need to update
-the reference snapshots stored in the repository. To do that, you need to:
-
-1. Compile the extension:
-
-```sh
-jlpm install
-jlpm build:prod
-```
-
-> Check the extension is installed in JupyterLab.
-
-2. Install test dependencies (needed only once):
-
-```sh
-cd ./ui-tests
-jlpm install
-jlpm playwright install
-cd ..
-```
-
-3. Execute the [Playwright](https://playwright.dev/docs/intro) command:
+To update the reference snapshots stored in the repository:
 
 ```sh
 cd ./ui-tests
@@ -104,36 +77,16 @@ jlpm playwright test -u
 
 ## Create tests
 
-> All commands are assumed to be executed from the root directory
+To create tests, use the [Playwright code generator](https://playwright.dev/docs/codegen):
 
-To create tests, the easiest way is to use the code generator tool of playwright:
-
-1. Compile the extension:
-
-```sh
-jlpm install
-jlpm build:prod
-```
-
-> Check the extension is installed in JupyterLab.
-
-2. Install test dependencies (needed only once):
-
-```sh
-cd ./ui-tests
-jlpm install
-jlpm playwright install
-cd ..
-```
-
-3. Start the server:
+1. Start the server:
 
 ```sh
 cd ./ui-tests
 jlpm start
 ```
 
-4. Execute the [Playwright code generator](https://playwright.dev/docs/codegen) in **another terminal**:
+2. In **another terminal**, run the code generator:
 
 ```sh
 cd ./ui-tests
@@ -142,29 +95,7 @@ jlpm playwright codegen localhost:8888
 
 ## Debug tests
 
-> All commands are assumed to be executed from the root directory
-
-To debug tests, a good way is to use the inspector tool of playwright:
-
-1. Compile the extension:
-
-```sh
-jlpm install
-jlpm build:prod
-```
-
-> Check the extension is installed in JupyterLab.
-
-2. Install test dependencies (needed only once):
-
-```sh
-cd ./ui-tests
-jlpm install
-jlpm playwright install
-cd ..
-```
-
-3. Execute the Playwright tests in [debug mode](https://playwright.dev/docs/debug):
+To debug tests, use the Playwright [debug mode](https://playwright.dev/docs/debug):
 
 ```sh
 cd ./ui-tests
