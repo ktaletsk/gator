@@ -88,4 +88,5 @@ mamba_gator/_version.py
 # ui-tests
 .playwright/
 ui-tests/playwright-report/
-ui-tests/test-results/.last-run.json
+ui-tests/test-results
+ui-tests/.yarn/install-state.gz
