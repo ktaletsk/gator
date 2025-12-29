@@ -90,3 +90,6 @@ mamba_gator/_version.py
 ui-tests/playwright-report/
 ui-tests/test-results
 ui-tests/.yarn/install-state.gz
+
+# Ephemeral agent notes
+tmp/
